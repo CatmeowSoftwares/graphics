@@ -1,5 +1,9 @@
-use std::sync::Arc;
-use wgpu::{wgt::DeviceDescriptor, *};
+use std::{str, sync::Arc};
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    wgt::DeviceDescriptor,
+    *,
+};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -16,6 +20,8 @@ pub struct State {
     is_surface_configured: bool,
     window: Arc<Window>,
     render_pipeline: RenderPipeline,
+    vertex_buffer: Buffer,
+    num_vertices: u32,
 }
 
 impl State {
@@ -86,7 +92,7 @@ impl State {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: PipelineCompilationOptions::default(),
-                buffers: &[],
+                buffers: &[Vertex::desc()],
             },
             primitive: PrimitiveState {
                 topology: PrimitiveTopology::TriangleList,
@@ -116,6 +122,13 @@ impl State {
             multiview_mask: None,
             cache: None,
         });
+
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: BufferUsages::VERTEX,
+        });
+        let num_vertices = VERTICES.len() as u32;
         Ok(Self {
             surface,
             device,
@@ -124,6 +137,8 @@ impl State {
             is_surface_configured: false,
             window,
             render_pipeline,
+            vertex_buffer,
+            num_vertices,
         })
     }
 
@@ -190,7 +205,8 @@ impl State {
                 multiview_mask: None,
             });
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.draw(0..3, 0..1);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -339,6 +355,41 @@ impl ApplicationHandler<State> for App {
                 ..
             } => state.handle_key(event_loop, code, key_state.is_pressed()),
             _ => {}
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+// this is in counter clockwise or something
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        color: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        color: [0.0, 0.0, 1.0],
+    },
+];
+
+impl Vertex {
+    const ATTRIBS: [VertexAttribute; 2] = vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+
+    fn desc() -> VertexBufferLayout<'static> {
+        VertexBufferLayout {
+            array_stride: size_of::<Vertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
         }
     }
 }
